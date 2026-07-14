@@ -387,12 +387,18 @@ async def charge_card(cc_str: str, session: CheckoutSession) -> dict:
         status = (api_res.get("status") or "").lower()
         message = api_res.get("message") or "No message"
 
-        if status in ("success", "charged", "approved", "live", "charge"):
+        # Real charge statuses from the API
+        if status in ("success", "charged", "approved"):
             result.update(status="CHARGED", response=message)
-        elif "payment successful" in message.lower():
+        elif status == "charge" and "payment successful" in message.lower():
             result.update(status="CHARGED", response=message)
+        elif status == "live":
+            result.update(status="LIVE", response=message)
         elif status in ("dead", "error", "declined", "failed"):
             result.update(status="DECLINED", response=message)
+        elif status == "charge":
+            # "charge" status but message is not a clear success — treat as live decline
+            result.update(status="LIVE", response=message)
         else:
             result.update(status="UNKNOWN", response=f"{status}: {message}")
     except Exception as e:
@@ -965,6 +971,9 @@ async def _run_hits(update: Update, ctx: ContextTypes.DEFAULT_TYPE, raw: str, ca
             stats["charged"] += 1
             result_blocks.append(_card_block(res, session))
             stopped = True
+        elif res["status"] == "LIVE":
+            stats["failed"] += 1
+            result_blocks.append(_card_block(res, session))
         elif res["status"] == "DECLINED":
             stats["declined"] += 1
             result_blocks.append(_card_block(res, session))
